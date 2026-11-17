@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCV</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            height: 100%;
+        }
+        .container-fluid {
+            height: 100%;
+            display: flex;
+        }
+        #data-panel {
+            width: 30%;
+            padding: 20px;
+            overflow-y: auto;
+            border-left: 1px solid #ddd;
+        }
+        #map-container {
+            width: 70%;
+        }
+        .table th, .table td {
+            font-size: 0.9rem;
+        }
+        .btn-panel {
+            margin-top: 20px;
+        }
+        .place-autocomplete {
+            box-sizing: border-box;
+            height: 40px;
+        }
+        .custom-pin {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .custom-pin.boys {
+            background-color: brown;
+        }
+        .custom-pin.girls {
+            background-color: orange;
+        }
+        .custom-pin.mix {
+            background-color: blue; 
+        }
+        .custom-pin.master {
+            background-color: green;
+        }
+        .custom-pin.applicant {
+            background-color: black;
+        }
+        .custom-pin.encircled {
+            background-color: red;
+        }
+        .tooltip-inner {
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Custom styles to reduce the size of the InfoWindow close button */
+        .gm-style .gmnoprint .gm-ui-hover-effect {
+            padding: 5px; /* Adjust padding to reduce the button size */
+        }
+        .gm-style .gmnoprint .gm-ui-hover-effect .gm-close-button {
+            width: 5px; /* Set the width of the close button */
+            height: 5px; /* Set the height of the close button */
+            font-size: 6px; /* Adjust font size for the icon */
+        }        
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div id="map-container">
+            <div id="map"></div>
+        </div>
+        <div id="data-panel">
+            
+            <div class="form-group">
+                <!-- Button to open a new profile -->
+                <button id="newProfileBtn" class="btn btn-primary" style="margin-bottom: 10px;">New Profile</button>
+
+                <!-- Display the profile name in the data panel -->
+                <div id="profileNameDisplay" style="font-weight: bold; margin-top: 10px;"></div>            
+            
+            
+                <p id="searchStatus" class="small text-danger mt-2" role="status" aria-live="polite"></p>
+
+                <label>Select Applicant Gender:</label><br>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="applicantGender" id="applicantMale" value="boys" checked>
+                    <label class="form-check-label" for="applicantMale">Boy</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="applicantGender" id="applicantFemale" value="girls">
+                    <label class="form-check-label" for="applicantFemale">Girl</label>
+                </div>
+            </div>
+            <h6>
+                <p id="distanceToSCV">Aerial distance to SCV: N/A</p>
+                <p id="encircledCount">Number of Encircled Schools: 0</p>
+            </h6>
+            <table class="table table-striped table-bordered">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Dist.</th>
+                        <th>School Name</th>
+                    </tr>
+                </thead>
+                <tbody id="encircledSchools"></tbody>
+            </table>
+            <div class="btn-panel">
+                <button class="btn btn-danger" id="clearPins">Clear</button>
+                <button class="btn btn-primary" id="toggleTooltipsBtn">Show Tips</button>
+                <button class="btn btn-primary" id="toggleMapStyle">Hide Labels</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let masterPin = { lat: 6.803592, lng: 79.922962 };
+        let masterMarker;
+        let applicantMarker;
+        let circles = [];
+        let encircledPins = [];
+        let activePins = [];
+        let extraLabelsHidden = false;  // Flag to check if labels are hidden
+        let tooltipsVisible = false; // Track whether tooltips are visible or not
+
+        // Define map styles to hide extra labels (e.g., administrative, landscape, etc.)
+        const hiddenLabelsStyle = [
+        {
+            "featureType": "administrative",
+            "elementType": "labels",
+            "stylers": [{ "visibility": "off" }]
+        },
+        {
+            "featureType": "poi",
+            "elementType": "labels",
+            "stylers": [{ "visibility": "off" }]
+        },
+        {
+            "featureType": "transit",
+            "elementType": "labels",
+            "stylers": [{ "visibility": "off" }]
+        },
+        {
+            "featureType": "water",
+            "elementType": "labels",
+            "stylers": [{ "visibility": "off" }]
+        },
+        {
+            "featureType": "landscape",
+            "elementType": "labels",
+            "stylers": [{ "visibility": "off" }]
+        }
+        ];
+
+
+
+
+        const pinData = [
+  {
+    "name": "NO1 PS",
+    "type": "mix",
+    "lat": 6.799663086246414,
+    "lng": 79.92246360834324
+  },
+  {
+    "name": "Mampe PS",
+    "type": "mix",
+    "lat": 6.799192335,
+    "lng": 79.92768153
+  },
+  {
+    "name": "Makandana SS MS",
+    "type": "mix",
+    "lat": 6.783322988,
+    "lng": 79.9432193
+  },
+  {
+    "name": "Batuwandara",
+    "type": "mix",
+    "lat": 6.770028867,
+    "lng": 79.94702013
+  },
+  {
+    "name": "Makuluduwa",
+    "type": "mix",
+    "lat": 6.813191074,
+    "lng": 79.93756768
+  },
+  {
+    "name": "Vidyakara Girls School",
+    "type": "girls",
+    "lat": 6.828636016,
+    "lng": 79.92003101
+  },
+  {
+    "name": "Batakettara Sumanasara Vidyalaya",
+    "type": "mix",
+    "lat": 6.782568167,
+    "lng": 79.9216785
+  },
+  {
+    "name": "Atigala BV",
+    "type": "girls",
+    "lat": 6.806993574,
+    "lng": 79.94682111
+  },
+  {
+    "name": "Delthara PS",
+    "type": "mix",
+    "lat": 6.787139239,
+    "lng": 79.91116236
+  },
+  {
+    "name": "Hadigama SSPS",
+    "type": "mix",
+    "lat": 6.7941578878433635,
+    "lng": 79.91186469331352
+  },
+  {
+    "name": "Ananda Samarakoon MV",
+    "type": "mix",
+    "lat": 6.80670488556491,
+    "lng": 79.90908221858965
+  },
+  {
+    "name": "Mahinda KV",
+    "type": "mix",
+    "lat": 6.820738039889168,
+    "lng": 79.91894098061037
+  },
+  {
+    "name": "VIdyaloka MV",
+    "type": "mix",
+    "lat": 6.828781230795292,
+    "lng": 79.93448483165675
+  },
+  {
+    "name": "Palagama Sri Parakum PS",
+    "type": "mix",
+    "lat": 6.764547687451502,
+    "lng": 79.97093808876139
+  },
+  {
+    "name": "Siripathi PS",
+    "type": "mix",
+    "lat": 6.779511904000023,
+    "lng": 79.9679084850297
+  },
+  {
+    "name": "Wethara PS",
+    "type": "mix",
+    "lat": 6.785568940999994,
+    "lng": 79.9733858030671
+  },
+  {
+    "name": "Kahathuduwa PS",
+    "type": "mix",
+    "lat": 6.783604044,
+    "lng": 79.98486343
+  },
+  {
+    "name": "Siyambalagoda PS",
+    "type": "mix",
+    "lat": 6.79568388,
+    "lng": 79.96631383
+  },
+  {
+    "name": "SOS",
+    "type": "mix",
+    "lat": 6.782832260647551,
+    "lng": 79.9496417697536
+  },
+  {
+    "name": "Pilip Atigala Madapatha",
+    "type": "mix",
+    "lat": 6.763910424138571,
+    "lng": 79.93019491472386
+  },
+  {
+    "name": "Arawwala JS",
+    "type": "mix",
+    "lat": 6.838400153199588,
+    "lng": 79.94598578693288
+  },
+  {
+    "name": "Pannipitiya Dharmapala",
+    "type": "mix",
+    "lat": 6.843926646532275,
+    "lng": 79.95381255834326
+  },
+  {
+    "name": "Kottawa Dharmapala",
+    "type": "mix",
+    "lat": 6.838361276,
+    "lng": 79.96584836
+  },
+  {
+    "name": "Mahamaya BV",
+    "type": "girls",
+    "lat": 6.862480166,
+    "lng": 79.8951964
+  },
+  {
+    "name": "Ananda Vidyalaya",
+    "type": "mix",
+    "lat": 6.846972929,
+    "lng": 79.89845013
+  },
+  {
+    "name": "Boralesgamuwa NO 1 PS",
+    "type": "mix",
+    "lat": 6.8386456353446565,
+    "lng": 79.90093530944775
+  },
+  {
+    "name": "Salina Viduhala",
+    "type": "mix",
+    "lat": 6.804970692900038,
+    "lng": 79.87596639570071
+  },
+  {
+    "name": "Podujaya College",
+    "type": "mix",
+    "lat": 6.79974199999999,
+    "lng": 79.8730262999999
+  },
+  {
+    "name": "Katukurunda St. Mary's College",
+    "type": "mix",
+    "lat": 6.744670999999999,
+    "lng": 79.8943051
+  },
+  {
+    "name": "Egoda Uyana Junior School",
+    "type": "mix",
+    "lat": 6.7299533,
+    "lng": 79.89979029999999
+  },
+  {
+    "name": "Bodhiraja Vidyalaya",
+    "type": "mix",
+    "lat": 6.7960064,
+    "lng": 79.8978401999999
+  },
+  {
+    "name": "Rawathawaththa Methodist College",
+    "type": "mix",
+    "lat": 6.788723999999999,
+    "lng": 79.8830578
+  },
+  {
+    "name": "St.Sebastian's College Moratuwa.",
+    "type": "girls",
+    "lat": 6.7812824960854545,
+    "lng": 79.87965118511123
+  },
+  {
+    "name": "Moratuwa Maha Vidyalaya",
+    "type": "mix",
+    "lat": 6.77828779999999,
+    "lng": 79.8850585
+  },
+  {
+    "name": "Roman Cathalic School",
+    "type": "mix",
+    "lat": 6.7894654353754005,
+    "lng": 79.88984777943908
+  },
+  {
+    "name": "Koralawella Roman Catholic Mixed School",
+    "type": "mix",
+    "lat": 6.7595947,
+    "lng": 79.8904805
+  },
+  {
+    "name": "Villorawatta Gnaisssara",
+    "type": "mix",
+    "lat": 6.7831531,
+    "lng": 79.90371220000002
+  },
+  {
+    "name": "Weera Puran Appu Vidyalaya",
+    "type": "mix",
+    "lat": 6.778564280296541,
+    "lng": 79.8827961880374
+  },
+  {
+    "name": "Uyana Primary School",
+    "type": "mix",
+    "lat": 6.7899563,
+    "lng": 79.87507409999999
+  },
+  {
+    "name": "De Soysa Maha Vidyalaya",
+    "type": "mix",
+    "lat": 6.804519961814751,
+    "lng": 79.88574204632118
+  },
+  {
+    "name": "Janajaya Vidyalaya",
+    "type": "mix",
+    "lat": 6.7672368,
+    "lng": 79.8857699
+  },
+  {
+    "name": "Prince of Wales' College",
+    "type": "boys",
+    "lat": 6.78514977072093,
+    "lng": 79.88337581901438
+  },
+  {
+    "name": "Princess of Wales' College",
+    "type": "girls",
+    "lat": 6.785151102432547,
+    "lng": 79.8833972766865
+  },
+  {
+    "name": "St. Anthony's College Moratuwa",
+    "type": "mix",
+    "lat": 6.78368881577238,
+    "lng": 79.89159076193657
+  },
+  {
+    "name": "Sri Sunandopananda Maha Vidyalaya (National School)",
+    "type": "mix",
+    "lat": 6.7415901,
+    "lng": 79.8944305
+  },
+  {
+    "name": "Dampe Kanishta Vidyalaya",
+    "type": "mix",
+    "lat": 6.7676236,
+    "lng": 79.9197096
+  },
+  {
+    "name": "Sugatha Dharmadhara Vidyalaya",
+    "type": "mix",
+    "lat": 6.7339405,
+    "lng": 79.898282
+  }
+
+];
+
+        async function initMap() {
+            await google.maps.importLibrary("maps");
+            await google.maps.importLibrary("geometry");
+            const { PlaceAutocompleteElement } = await google.maps.importLibrary("places");
+
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: masterPin,
+                zoom: 13,
+                mapTypeControl: true,
+                mapTypeControlOptions: {
+                    position: google.maps.ControlPosition.TOP_LEFT
+                },
+                fullscreenControl: true,
+                fullscreenControlOptions: {
+                    position: google.maps.ControlPosition.TOP_RIGHT
+                },
+                streetViewControl: true
+            });
+
+            // Initialize master pin
+            masterMarker = new google.maps.Marker({
+                position: masterPin,
+                map: map,
+                title: 'Master Pin (SCV)',
+                icon: {
+                    url: 'data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="green"/></svg>',
+                }
+            });
+
+            // Add initial school pins
+            pinData.forEach(pin => {
+                addPin(pin.name, pin.type, { lat: pin.lat, lng: pin.lng });
+            });
+
+            // Use the current map viewport to bias autocomplete suggestions.
+            const placeAutocomplete = new PlaceAutocompleteElement();
+            placeAutocomplete.classList.add('place-autocomplete');
+            placeAutocomplete.setAttribute('placeholder', 'Search');
+            const searchControl = document.createElement('div');
+            searchControl.style.transform = 'translate( 65px, 10px)';
+            searchControl.appendChild(placeAutocomplete);
+            map.controls[google.maps.ControlPosition.TOP_CENTER].push(searchControl);
+
+            const resizeSearch = () => {
+                placeAutocomplete.style.width = `${Math.max(0, map.getDiv().clientWidth - 240)}px`;
+            };
+            const searchResizeObserver = new ResizeObserver(resizeSearch);
+            searchResizeObserver.observe(map.getDiv());
+            resizeSearch();
+
+            map.addListener('bounds_changed', () => {
+                const bounds = map.getBounds();
+                if (bounds) {
+                    placeAutocomplete.locationBias = bounds;
+                }
+            });
+
+            placeAutocomplete.addEventListener('gmp-select', async (event) => {
+                const searchStatus = document.getElementById('searchStatus');
+                searchStatus.textContent = '';
+
+                try {
+                    const place = event.placePrediction.toPlace();
+                    await place.fetchFields({ fields: ['displayName', 'location'] });
+
+                    if (!place.location) {
+                        searchStatus.textContent = 'The selected place has no location. Try another search.';
+                        return;
+                    }
+
+                    if (applicantMarker) {
+                        applicantMarker.setMap(null);
+                    }
+                    applicantMarker = new google.maps.Marker({
+                        position: place.location,
+                        map: map,
+                        title: place.displayName || 'Applicant Pin',
+                        draggable: true,
+                        icon: {
+                            url: 'data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="black"/></svg>',
+                        }
+                    });
+
+                    google.maps.event.addListener(applicantMarker, 'dragend', function(event) {
+                        updateCircle(event.latLng);
+                    });
+
+                    map.setCenter(place.location);
+                    map.setZoom(15);
+                    updateCircle(place.location);
+                } catch (error) {
+                    console.error('Unable to retrieve the selected place.', error);
+                    searchStatus.textContent = 'Unable to retrieve that place. Please try another search.';
+                }
+            });
+
+
+/*
+
+        // Initialize the Street View service
+        panorama = new google.maps.StreetViewPanorama(document.getElementById('map'), {
+          position: masterPin,
+          pov: { heading: 165, pitch: 0 },
+          visible: true
+        });
+
+        // Link the Street View and Map
+        map.setStreetView(panorama);
+
+        // Event listener for Pegman being dropped
+        panorama.addListener('position_changed', function() {
+          let position = panorama.getPosition();
+          let lat = position.lat();
+          let lng = position.lng();
+          console.log("Street View Position:", lat, lng);
+        });
+
+
+/**/
+            const infoWindows = []; // Store the tooltips (InfoWindows) for encircled pins
+
+            // Event listener for New Profile button
+            document.getElementById('newProfileBtn').addEventListener('click', function() {
+                // Prompt the user for a profile name
+                const profileName = prompt("Enter the new profile name:");
+
+                // Check if the user entered a valid name
+                if (profileName) {
+                    // Display the profile name in the data panel
+                    this.style.display = 'none';
+                    document.getElementById('profileNameDisplay').textContent = `Profile: ${profileName}`;
+                    document.title = `SCV: ${profileName}`;
+                    // Open a new tab with the new profile HTML file
+                    // You can pass the profile name as a query parameter to the new tab if needed
+                    const newTabUrl = `School.html`;
+                    window.open(window.location.href, '_blank'); // Opens the new tab with the profile page
+                }
+            });
+
+            // Event listener for the toggle button
+            document.getElementById('toggleMapStyle').addEventListener('click', function() {
+            if (extraLabelsHidden) {
+                map.setOptions({ styles: [] });  // Restore default map style
+                this.innerText = "Hide Labels";
+            } else {
+                map.setOptions({ styles: hiddenLabelsStyle });  // Apply custom style
+                this.innerText = "Show Labels";
+            }
+            extraLabelsHidden = !extraLabelsHidden;
+            });
+
+            // Function to toggle tooltips for encircled pins
+            document.getElementById('toggleTooltipsBtn').addEventListener('click', function() {
+                if (!tooltipsVisible) {
+                    // Show tooltips for all encircled pins
+                    this.innerText = "Hide Tips";
+                    encircledPins.forEach(pin => {
+                        const marker = activePins.find(m => m.getPosition().equals(new google.maps.LatLng(pin.lat, pin.lng)));
+                        if (marker) {
+                            const infoWindow = new google.maps.InfoWindow({
+                                content: `<div><strong>${pin.name}</strong><br>
+                                    Distance : ${pin.distanceToApplicant}<br>
+                                    School Type: ${pin.type}<br>
+                                    Latitude : ${pin.lat}<br>
+                                    Longitude :${pin.lng}<br>
+                                    </div>`
+            
+
+                            });
+                            infoWindow.open(map, marker);
+                            infoWindows.push(infoWindow);
+                        }
+                    });
+                } else {
+                    // Hide tooltips for all encircled pins
+                    this.innerText = "Show Tips";
+                    infoWindows.forEach(infoWindow => infoWindow.close());
+                    infoWindows.length = 0; // Clear the tooltips array
+                }
+
+                tooltipsVisible = !tooltipsVisible; // Toggle the state
+            });
+
+            // Clear all pins
+            document.getElementById('clearPins').addEventListener('click', () => {
+                /*
+                activePins.forEach(marker => marker.setMap(null));
+                activePins = [];
+                */
+
+                activePins.forEach((marker) => {
+                    const pin = pinData.find(p => marker.getPosition().equals(new google.maps.LatLng(p.lat, p.lng)));
+                    if (pin) {
+                        const color = {
+                            boys: 'blue',
+                            girls: 'orange',
+                            mix: 'blue' // Blue color for mix
+                        }[pin.type] || 'blue';
+
+                        marker.setIcon({
+                            url: `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="${color}"/></svg>`,
+                        });
+                    }
+                });
+
+                if (applicantMarker) {
+                    applicantMarker.setMap(null);
+                    applicantMarker = null;
+                }
+                circles.forEach(circle => circle.setMap(null));
+                circles = [];
+                encircledPins = [];
+        
+                //Clear distance display
+                document.getElementById('distanceToSCV').textContent = `Aerial distance to SCV: 0 km`;
+
+                updateEncircledSchools();
+                
+            });
+
+            // Add listener for click to add applicant pin
+            map.addListener('click', event => {
+                if (applicantMarker) {
+                    applicantMarker.setMap(null);
+                }
+                applicantMarker = new google.maps.Marker({
+                    position: event.latLng,
+                    map: map,
+                    draggable: true,
+                    title: 'Applicant Pin',
+                    icon: {
+                        url: 'data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="black"/></svg>',
+                    }
+                });
+
+                google.maps.event.addListener(applicantMarker, 'dragend', function(event) {
+                    updateCircle(event.latLng);
+                });
+
+                updateCircle(event.latLng);
+            });
+
+            // Add pins to map
+            //let originalColors = {}; 
+
+            function addPin(name, type, position) {
+                const color = {
+                    boys: 'blue',
+                    girls: 'orange',
+                    mix: 'blue' // Blue color for mix 
+                }[type] || 'blue';
+
+                const marker = new google.maps.Marker({
+                    position: position,
+                    map: map,
+                    title: `${name} (${type})`,
+                    icon: {
+                        url: `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="${color}"/></svg>`,
+                    }
+                });
+
+                //originalColors[`${position.lat()},${position.lng()}`] = color; // Store original color
+
+                const infoWindow = new google.maps.InfoWindow({
+                    //content: `<div><strong>${name}</strong><br>Type: ${type}</div>`
+                    content: `<div><strong>${name}</strong><br>
+                                    School Type: ${type}<br>
+                                    Latitude : ${position.lat}<br>
+                                    Longitude :${position.lng}<br>
+                                    </div>`                    
+                });
+
+
+
+                marker.addListener('click', () => {
+                    infoWindows.forEach(infoWindow => infoWindow.close());
+                    infoWindow.open(map, marker);
+                    infoWindows.push(infoWindow);                    
+                });
+
+                activePins.push(marker);
+            }
+
+            // Street View Change Handler
+            map.getStreetView().addListener('visible_changed', () => {
+                const streetView = map.getStreetView();
+                if (streetView.getVisible()) {
+                // Update applicant pin position to match Street View position
+                    if (applicantMarker) {
+                        streetView.addListener('position_changed', () => {
+                        const position = streetView.getPosition();
+                        applicantMarker.setPosition(position);
+                        updateCircle(position);
+                        });
+                    } 
+                }
+            });
+            
+
+
+            // Update circle based on applicant marker location
+            function updateCircle(center) {
+                circles.forEach(circle => circle.setMap(null)); // Clear previous circles
+                circles = [];
+                encircledPins = [];
+
+                if (applicantMarker) {
+                    const distanceToMaster = google.maps.geometry.spherical.computeDistanceBetween(center, masterMarker.getPosition()); // Distance from applicant to master
+                    const circle = new google.maps.Circle({
+                        center: center,
+                        radius: distanceToMaster,
+                        map: map,
+                        strokeColor: '#FF0000',
+                        strokeOpacity: 0.8,
+                        strokeWeight: 2,
+                        fillColor: '#FF0000',
+                        fillOpacity: 0.35
+                    });
+                    circles.push(circle);
+
+                    const applicantGender = document.querySelector('input[name="applicantGender"]:checked').value;
+
+                    pinData.forEach((pin) => {
+                        const pinPosition = new google.maps.LatLng(pin.lat, pin.lng);
+                        const distanceToPin = google.maps.geometry.spherical.computeDistanceBetween(center, pinPosition); // Distance from applicant to each pin
+                        const isWithinCircle = distanceToPin <= distanceToMaster;
+
+                        const marker = activePins.find(marker => marker.getPosition().equals(pinPosition));
+                        if (marker) {
+                            if (isWithinCircle) {
+                                // Check if the pin type matches the applicant gender
+                                const isValidSchool = (applicantGender === 'boys' && (pin.type === 'boys' || pin.type === 'mix')) ||
+                                                    (applicantGender === 'girls' && (pin.type === 'girls' || pin.type === 'mix'));
+
+                                if (isValidSchool) {
+                                    marker.setIcon({
+                                        url: 'data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="red"/></svg>',
+                                    });
+                                    pin.distanceToApplicant = (distanceToPin / 1000).toFixed(2); // Save distance in km
+                                    encircledPins.push(pin);
+                                } else {
+                                    // Restore original color if it doesn't match the gender criteria
+                                    const color = {
+                                        boys: 'blue',
+                                        girls: 'orange',
+                                        mix: 'blue' // Blue color for mix
+                                    }[pin.type] || 'blue';
+                                    marker.setIcon({
+                                        url: `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="${color}"/></svg>`,
+                                    });
+                                }
+                            } else {
+                                // Restore original color if outside the circle
+                                const color = {
+                                    boys: 'blue',
+                                    girls: 'orange',
+                                    mix: 'blue'
+                                }[pin.type] || 'blue';
+                                marker.setIcon({
+                                    url: `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="${color}"/></svg>`,
+                                });
+                            }
+                        }
+                    });
+
+                    updateEncircledSchools(); // Update the table
+                    const distanceInKm = (distanceToMaster / 1000).toFixed(2);
+                    document.getElementById('distanceToSCV').textContent = `Aerial distance to SCV: ${distanceInKm} km`;
+                }
+            }
+
+            // Update encircled schools in the data panel
+            function updateEncircledSchools() {
+                const encircledCount = document.getElementById('encircledCount');
+                const encircledSchoolsTable = document.getElementById('encircledSchools');
+                encircledSchoolsTable.innerHTML = ''; // Clear previous entries
+
+                encircledPins.sort((a, b) => a.distanceToApplicant - b.distanceToApplicant);
+
+                encircledPins.forEach((pin, index) => {
+                    const row = document.createElement('tr');
+                    
+                    // Assign color based on the school type
+                    let rowColor;
+                    if (pin.type === 'boys') {
+                        rowColor = 'lightblue'; // Light blue for boys' schools
+                    } else if (pin.type === 'girls') {
+                        rowColor = 'lightcoral'; // Light coral for girls' schools
+                    } else {
+                        rowColor = 'lightgreen'; // Light green for mix schools
+                    }
+                    row.style.backgroundColor = rowColor; // Apply the background color
+
+                    // Populate row with school data
+                    row.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${pin.distanceToApplicant} km</td>
+                        <td>${pin.name}</td>
+
+                    `;
+
+                    row.addEventListener('click', () => {
+                        //const pinPosition = new google.maps.LatLng(pin.lat, pin.lng);
+                        //map.panTo(pinPosition);
+                        //map.setZoom(13);
+                        //console.log(pin);
+
+
+                        const marker = activePins.find(m => m.getPosition().equals(new google.maps.LatLng(pin.lat, pin.lng)));
+
+                        if (marker) {
+                            //map.panTo(applicantMarker.getPosition());
+                            //map.slowPanTo(applicantMarker, 2000)
+                            //map.setZoom(13);  
+                            //sleep
+                            map.panTo(marker.getPosition());
+                            map.setZoom(16);                            
+                            const infoWindow = new google.maps.InfoWindow({
+                                content: `<div><strong>${pin.name}</strong><br>
+                                    Distance : ${pin.distanceToApplicant}<br>
+                                    School Type: ${pin.type}<br>
+                                    Latitude : ${pin.lat}<br>
+                                    Longitude :${pin.lng}<br>
+                                    </div>`
+
+
+                            });
+                            infoWindows.forEach(infoWindow => infoWindow.close());
+                            infoWindow.open(map, marker);
+                            infoWindows.push(infoWindow);
+                        }
+
+/*
+                        const infoWindow = new google.maps.InfoWindow({
+                            //content: `<strong>${schoolName}</strong><br>Distance: ${distance} km`
+                            content: `<div><strong>${pin.name}</strong><br>Type: ${pin.type} school</div>`
+                        });
+                        infoWindow.open(map, pin.marker);
+                        */
+                        });
+
+                    encircledSchoolsTable.appendChild(row);
+                });
+                
+                
+
+                encircledCount.textContent = `Number of Encircled Schools: ${encircledPins.length}`;
+            }
+
+            // Update encircled schools whenever applicant gender changes
+            document.querySelectorAll('input[name="applicantGender"]').forEach(radio => {
+                radio.addEventListener('change', () => {
+                    if (applicantMarker && applicantMarker.getPosition()) {
+                        updateCircle(applicantMarker.getPosition());
+                    }
+                });
+            });
+        }
+
+        //document.addEventListener('DOMContentLoaded', initMap);
+    </script>
+    <script src="map-config.js"></script>
+    <script>
+        loadGoogleMapsApi('locationChecker', ['geometry'], 'initMap');
+    </script>
+</body>
+</html>
